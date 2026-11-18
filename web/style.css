@@ -449,7 +449,7 @@ code, pre, kbd { font-family: var(--mono); }
 .graph-legend span { display: inline-flex; align-items: center; gap: 6px; }
 .graph-legend .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
 .legend-hint { opacity: 0.65; border-left: 1px solid var(--line); padding-left: 14px; }
-.dot.d-doc { background: #7aa2f7; box-shadow: 0 0 10px rgba(122, 162, 247, 0.8); }
+.dot.d-doc { background: conic-gradient(#a78bfa, #60a5fa, #34d399, #fbbf24, #f472b6, #a78bfa); box-shadow: 0 0 10px rgba(122, 162, 247, 0.7); }
 .dot.d-category { background: #c4b5fd; box-shadow: 0 0 10px rgba(196, 181, 253, 0.8); }
 .dot.d-tag { background: #5eead4; box-shadow: 0 0 10px rgba(94, 234, 212, 0.8); }
 .dot.d-term { background: #f5c26b; box-shadow: 0 0 10px rgba(245, 194, 107, 0.8); }
