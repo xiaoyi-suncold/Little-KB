@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Little KB · 我的知识库</title>
+<link rel="stylesheet" href="/assets/style.css" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%237c9cff'/%3E%3Cstop offset='1' stop-color='%23b388ff'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='100' height='100' rx='24' fill='url(%23g)'/%3E%3Ctext x='50' y='68' font-size='52' text-anchor='middle' fill='white' font-family='sans-serif'%3E%E2%9C%A6%3C/text%3E%3C/svg%3E" />
+</head>
+<body>
+<div class="bg-aurora" aria-hidden="true"></div>
+<div class="bg-grid" aria-hidden="true"></div>
+
+<header class="topbar">
+  <a class="brand" href="/" aria-label="Little KB 首页">
+    <span class="brand-mark">✦</span>
+    <span class="brand-text">
+      <strong>Little&nbsp;KB</strong>
+      <small>我的知识星图</small>
+    </span>
+  </a>
+
+  <div class="search-wrap">
+    <span class="search-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+    </span>
+    <input id="search" type="search" autocomplete="off" spellcheck="false"
+           placeholder="搜索文档、标签、正文…" aria-label="搜索知识库" />
+    <button id="search-clear" class="icon-btn hidden" title="清空搜索" aria-label="清空搜索">✕</button>
+    <kbd>/</kbd>
+  </div>
+
+  <div class="top-actions">
+    <button id="btn-upload" class="btn btn-primary"><span class="plus">＋</span>上传</button>
+    <button id="btn-reindex" class="btn btn-ghost" title="重新扫描知识库文件夹">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 11a8 8 0 1 0-2.3 6.3"/><path d="M20 5v6h-6"/></svg>
+      重建索引
+    </button>
+    <button id="btn-theme" class="icon-btn" title="切换主题" aria-label="切换主题">◐</button>
+  </div>
+</header>
+
+<main class="layout">
+  <aside class="sidebar">
+    <section class="overview">
+      <div class="overview-head">
+        <h2>概览</h2>
+        <span class="pulse-dot" title="服务在线"></span>
+      </div>
+      <div class="stats" id="stats"></div>
+    </section>
+
+    <section class="panel-section">
+      <div class="section-head">
+        <h2>分类</h2>
+        <button id="btn-cat-all" class="link-btn">全部</button>
+      </div>
+      <div id="cats" class="cats"></div>
+    </section>
+
+    <section class="panel-section grow">
+      <div class="section-head">
+        <h2 id="list-title">全部文档</h2>
+        <span class="muted" id="list-meta"></span>
+      </div>
+      <ul id="list" class="doc-list"></ul>
+      <div id="list-empty" class="empty-hint hidden"></div>
+    </section>
+  </aside>
+
+  <section class="viewer" id="viewer">
+    <div class="view-tabs">
+      <div class="seg">
+        <button class="view-tab active" data-view="doc" id="tab-doc">文档</button>
+        <button class="view-tab" data-view="graph" id="tab-graph">星图</button>
+      </div>
+      <div class="grow"></div>
+      <span class="muted tab-hint" id="graph-count"></span>
+    </div>
+
+    <div class="view-body">
+      <div id="view-doc" class="view-pane">
+        <div id="welcome" class="welcome">
+          <div class="welcome-card">
+            <div class="welcome-eyebrow">PERSONAL KNOWLEDGE BASE</div>
+            <h1>把散落的文件，<br /><span class="grad-text">织成一张会生长的星图</span></h1>
+            <p class="welcome-sub">
+              文件原样躺在 <code id="kb-path">kb/</code> 里，SQLite FTS5 负责全文检索。
+              没有向量库、没有第三方依赖，改完文件点一下重建索引就行。
+            </p>
+            <div class="welcome-grid">
+              <div class="tip">
+                <span class="tip-icon">⇪</span>
+                <b>上传</b>
+                <span>md / txt / docx / html / 代码 / 表格，多选一起传。</span>
+              </div>
+              <div class="tip">
+                <span class="tip-icon">⌕</span>
+                <b>检索</b>
+                <span>中文按字建索引，空格分词，命中片段自动高亮。</span>
+              </div>
+              <div class="tip">
+                <span class="tip-icon">✦</span>
+                <b>星图</b>
+                <span>文档、分类、标签、关键词长成一张可拖拽的网络。</span>
+              </div>
+            </div>
+            <button class="btn btn-primary btn-lg" id="btn-upload-2">上传第一个文件</button>
+          </div>
+        </div>
+        <article id="doc" class="doc hidden" aria-live="polite"></article>
+      </div>
+
+      <div id="view-graph" class="view-pane hidden">
+        <canvas id="graph-canvas"></canvas>
+
+        <div class="graph-toolbar">
+          <button class="gbtn" id="g-reheat" title="重新布局">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 11a8 8 0 1 0-2.3 6.3"/><path d="M20 5v6h-6"/></svg>
+            重排
+          </button>
+          <button class="gbtn" id="g-fit" title="适应窗口">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+            适应
+          </button>
+          <button class="gbtn" id="g-labels" title="显示/隐藏标签">Aa 标签</button>
+          <span class="gsep"></span>
+          <label class="gcheck"><input type="checkbox" id="g-type-doc" checked /><i class="dot d-doc"></i>文档</label>
+          <label class="gcheck"><input type="checkbox" id="g-type-category" checked /><i class="dot d-category"></i>分类</label>
+          <label class="gcheck"><input type="checkbox" id="g-type-tag" checked /><i class="dot d-tag"></i>标签</label>
+          <label class="gcheck"><input type="checkbox" id="g-type-term" /><i class="dot d-term"></i>关键词</label>
+        </div>
+
+        <div class="graph-legend">
+          <span><i class="dot d-category"></i>分类</span>
+          <span><i class="dot d-doc"></i>文档</span>
+          <span><i class="dot d-tag"></i>标签</span>
+          <span><i class="dot d-term"></i>关键词</span>
+          <span class="legend-hint">滚轮缩放 · 拖拽平移 · 双击适应</span>
+        </div>
+
+        <div class="graph-tip hidden" id="graph-tip"></div>
+        <div class="graph-empty hidden" id="graph-empty">
+          <b>星图还是空的</b>
+          <span>上传文件之后，这里会生长出属于你的知识网络。</span>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+  <div class="modal-card">
+    <div class="modal-head">
+      <h2 id="modal-title">上传到知识库</h2>
+      <button class="icon-btn" id="modal-close" aria-label="关闭">✕</button>
+    </div>
+    <div class="dropzone" id="dropzone" tabindex="0">
+      <div class="dropzone-icon">⇪</div>
+      <p><b>拖拽文件到这里</b>，或点击选择</p>
+      <small class="muted">可多选；单文件上限 <span id="max-size">64</span> MB</small>
+      <input id="file-input" type="file" multiple hidden />
+    </div>
+    <ul id="file-list" class="file-list"></ul>
+    <div class="modal-fields">
+      <label>分类目录
+        <input id="f-category" list="cat-options" placeholder="留空 = 根目录，如：技术笔记" />
+        <datalist id="cat-options"></datalist>
+      </label>
+      <label>标签（逗号分隔，可选）
+        <input id="f-tags" placeholder="检索, 设计" />
+      </label>
+    </div>
+    <div class="modal-foot">
+      <span class="muted" id="upload-status"></span>
+      <div class="grow"></div>
+      <button class="btn btn-ghost" id="upload-cancel">取消</button>
+      <button class="btn btn-primary" id="upload-submit" disabled>上传并索引</button>
+    </div>
+  </div>
+</div>
+
+<div id="toasts" class="toasts"></div>
+<script src="/assets/graph.js"></script>
+<script src="/assets/app.js"></script>
+</body>
+</html>

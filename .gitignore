@@ -1,0 +1,26 @@
+# 运行时数据与生成物（可随时重建）
+data/
+out/
+tools/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# 飞控日志与参数缓存
+*.bin
+*.BIN
+*.npz
+*.zip
+
+# 本地临时脚本（根目录的一次性调试文件）
+/*.py
+!/server.py
+/*.txt
+/nul
+
+# 系统
+Thumbs.db
+.DS_Store
