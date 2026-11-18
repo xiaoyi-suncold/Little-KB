@@ -9,8 +9,6 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from openpyxl import load_workbook
-
 COLUMNS = ("name", "value", "category", "desc", "hint", "default_value")
 VEHICLE_HINTS = (("四轴", "四轴"), ("六轴", "六轴"), ("四旋翼", "四轴"), ("六旋翼", "六轴"))
 
@@ -24,7 +22,15 @@ def detect_vehicle(path: Path) -> str:
 
 
 def read_workbook(path: Path) -> list[dict]:
-    """独立读取（非 read_only），便于与流式读取互相校验。"""
+    """独立读取（非 read_only），便于与流式读取互相校验。
+
+    openpyxl 为可选依赖：只有解析 Excel 参数表时才需要，
+    缺失时返回空列表，不影响知识库其余功能。
+    """
+    try:
+        from openpyxl import load_workbook
+    except ImportError:
+        return []
     book = load_workbook(path, data_only=True, read_only=False)
     sheet = book.worksheets[0]
     rows = sheet.iter_rows(values_only=True)
