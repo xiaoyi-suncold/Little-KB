@@ -1,6 +1,6 @@
 # Little KB · 本地文件夹知识库
 
-> 仓库：<https://github.com/xiaoyiyi-sun/WRJ_mod>
+> 仓库：<https://github.com/xiaoyiyi-sun/Little-KB>
 
 一个**零第三方依赖**的个人知识库：文件以原始格式躺在 `kb/` 文件夹里，SQLite FTS5 负责全文检索，自带一个深色主题的 Web 界面。没有词嵌入、没有向量库、不需要安装任何包。
 
@@ -33,8 +33,8 @@ run.cmd
 只有两个要求：**Python 3.8+**（标准库自带 SQLite FTS5），**不需要 pip install 任何东西**。
 
 ```bash
-git clone https://github.com/xiaoyiyi-sun/WRJ_mod.git
-cd WRJ_mod
+git clone https://github.com/xiaoyiyi-sun/Little-KB.git
+cd Little-KB
 ```
 
 Windows 双击 `run.cmd`；macOS / Linux：
