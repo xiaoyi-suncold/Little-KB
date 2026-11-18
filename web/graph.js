@@ -1,16 +1,23 @@
-/* 知识星图：星团式布局 + 呼吸漂移 + 发光精灵，无任何外部依赖 */
+/* 知识星图：簇状放射布局 + 抗重叠标签 + 轻量发光，无任何外部依赖 */
 window.KBGraph = (function () {
   "use strict";
 
   const COLORS = {
-    category: "#c4b5fd",
-    doc: "#7aa2f7",
-    tag: "#5eead4",
-    term: "#f5c26b",
+    category: "#a78bfa",
+    doc: "#5b9cf8",
+    tag: "#2dd4bf",
+    term: "#fbbf24",
   };
   const TYPE_NAME = { doc: "文档", term: "关键词", tag: "标签", category: "分类" };
-  const BASE_R = { category: 11, doc: 6.2, tag: 4, term: 2.6 };
+  const BASE_R = { category: 10, doc: 5.2, tag: 3.1, term: 2.2 };
   const GOLD = Math.PI * (3 - Math.sqrt(5));
+  const DOC_SPACING = 33;
+  /* 每个分类一个色相，文档继承所属分类的颜色，让星团有层次 */
+  const CAT_PALETTE = [
+    "#a78bfa", "#60a5fa", "#34d399", "#f472b6",
+    "#fbbf24", "#38bdf8", "#c084fc", "#4ade80",
+    "#fb923c", "#e879f9", "#22d3ee", "#a3e635",
+  ];
 
   let canvas = null;
   let ctx = null;
@@ -24,12 +31,11 @@ window.KBGraph = (function () {
   let index = new Map();
   let stars = [];
   let sprites = new Map();
+  let clusters = [];
 
   let scale = 1;
   let tx = 0;
   let ty = 0;
-  let alpha = 0;
-  let active = false;
   let startedAt = 0;
   let clock = 0;
 
@@ -42,8 +48,9 @@ window.KBGraph = (function () {
   let showLabels = true;
   let filters = { doc: true, term: false, tag: true, category: true };
   let highlight = new Set();
-  let pendingFit = false;
-  let layout = { termX: 300 };
+
+  let rafId = 0;
+  let lastFrame = 0;
 
   let hooks = { openDoc: () => {}, searchTerm: () => {} };
 
@@ -61,6 +68,7 @@ window.KBGraph = (function () {
     } else {
       window.addEventListener("resize", resize);
     }
+    startLoop();
     return api;
   }
 
@@ -78,27 +86,24 @@ window.KBGraph = (function () {
     makeStars();
     if (nodes.length) {
       layoutClusters();
-      nodes.forEach((n) => {
-        if (n.type === "category" || n.type === "doc") {
-          n.x = n.bx;
-          n.y = n.by;
-        }
+      nodes.forEach((node) => {
+        node.x = node.bx;
+        node.y = node.by;
       });
-      alpha = Math.max(alpha, 0.4);
-      kick(0.5);
+      fit(64);
     }
     draw();
   }
 
   function makeStars() {
     stars = [];
-    const count = Math.round((W * H) / 20000);
+    const count = Math.round((W * H) / 26000);
     for (let i = 0; i < count; i += 1) {
       stars.push({
         x: Math.random() * W,
         y: Math.random() * H,
-        r: Math.random() * 1.1 + 0.25,
-        a: Math.random() * 0.32 + 0.06,
+        r: Math.random() * 0.9 + 0.2,
+        a: Math.random() * 0.22 + 0.04,
         p: Math.random() * Math.PI * 2,
       });
     }
@@ -113,6 +118,7 @@ window.KBGraph = (function () {
       if (!dragNode) {
         hover = null;
         hideTip();
+        draw();
       }
     });
     canvas.addEventListener("dblclick", () => fit());
@@ -122,16 +128,16 @@ window.KBGraph = (function () {
 
   function sprite(color) {
     if (sprites.has(color)) return sprites.get(color);
-    const size = 96;
+    const size = 64;
     const c = document.createElement("canvas");
     c.width = size;
     c.height = size;
     const g = c.getContext("2d");
     const r = size / 2;
     const grad = g.createRadialGradient(r, r, 0, r, r, r);
-    grad.addColorStop(0, color);
-    grad.addColorStop(0.22, color);
-    grad.addColorStop(0.4, hexA(color, 0.4));
+    grad.addColorStop(0, hexA(color, 0.85));
+    grad.addColorStop(0.3, hexA(color, 0.32));
+    grad.addColorStop(0.62, hexA(color, 0.09));
     grad.addColorStop(1, hexA(color, 0));
     g.fillStyle = grad;
     g.beginPath();
@@ -153,7 +159,6 @@ window.KBGraph = (function () {
     nodes = [];
     edges = [];
     index = new Map();
-    const now = Math.random() * 100;
 
     (data.nodes || []).forEach((raw, i) => {
       const node = {
@@ -165,7 +170,8 @@ window.KBGraph = (function () {
         category: raw.category || "",
         degree: 0,
         r: 0,
-        phase: now + i * 0.7,
+        order: i,
+        phase: Math.random() * Math.PI * 2,
         vx: 0,
         vy: 0,
       };
@@ -190,85 +196,115 @@ window.KBGraph = (function () {
       node.y = node.by;
     });
     startedAt = performance.now();
-    alpha = 1;
-    pendingFit = true;
-    kick(1);
+    fit(64);
     return { nodes: nodes.length, edges: edges.length };
   }
 
   function radiusOf(node) {
     const base = BASE_R[node.type] || 3;
-    if (node.type === "doc") return base + Math.min(5.5, Math.log10((Number(node.weight) || 0) + 10) * 1.6);
-    if (node.type === "category") return base + Math.min(5, (node.weight || 1) * 1.1);
-    if (node.type === "tag") return base + Math.min(1.6, (node.weight || 1) * 0.22);
+    if (node.type === "doc") {
+      return base + Math.min(3.4, Math.log10((Number(node.weight) || 0) + 10) * 1.1);
+    }
+    if (node.type === "category") {
+      return base + Math.min(4, (node.weight || 1) * 0.5);
+    }
+    if (node.type === "tag") {
+      return base + Math.min(1.2, (node.weight || 1) * 0.16);
+    }
     return base;
   }
 
-  /* ------------------------------------------------------------ 星团布局 */
+  /* ------------------------------------------------------------ 簇状放射布局 */
 
   function layoutClusters() {
+    clusters = [];
     const cats = nodes
       .filter((n) => n.type === "category")
       .sort((a, b) => (b.weight || 1) - (a.weight || 1));
 
-    const byCat = new Map();
-    cats.forEach((c) => byCat.set(c.id, []));
+    const docsByCat = new Map();
+    cats.forEach((c) => docsByCat.set(c.id, []));
     nodes.forEach((n) => {
       if (n.type !== "doc") return;
       const key = "cat:" + (n.category || "");
-      if (byCat.has(key)) byCat.get(key).push(n);
+      if (docsByCat.has(key)) docsByCat.get(key).push(n);
     });
 
-    const totalDocs = Math.max(1, nodes.filter((n) => n.type === "doc").length);
-    const bandTotal = H * 0.8;
-    const catX = -Math.min(W * 0.32, 430);
-    const docOffset = Math.min(240, Math.max(170, W * 0.16));
-
-    let cursor = -bandTotal / 2;
-    let maxRight = catX + docOffset;
-
+    // 每个簇的半径由文档数量决定，并分配独立色相
     cats.forEach((cat, ci) => {
-      const docs = (byCat.get(cat.id) || []).sort((a, b) => (b.weight || 1) - (a.weight || 1));
+      const docs = docsByCat.get(cat.id) || [];
+      cat.docs = docs;
+      cat.clusterR = Math.max(46, DOC_SPACING * Math.sqrt(Math.max(1, docs.length)) + 26);
+      cat.color = CAT_PALETTE[ci % CAT_PALETTE.length];
+      docs.forEach((doc) => { doc.color = cat.color; });
+      clusters.push(cat);
+    });
+
+    // 构图：最大的簇居中，其余环绕成轨道，画面重心稳定不留大片空白
+    if (cats.length) {
+      const core = cats[0];
+      core.bx = 0;
+      core.by = 0;
+      const satellites = cats.slice(1);
+      if (satellites.length) {
+        const arcBase = satellites.reduce((sum, c) => sum + c.clusterR + 50, 0);
+        let cursor = -Math.PI / 2;
+        satellites.forEach((cat, i) => {
+          const share = (cat.clusterR + 50) / arcBase;
+          const ang = cursor + share * Math.PI; // 落在自己扇区的中间
+          cursor += share * Math.PI * 2;
+          const radius = core.clusterR + cat.clusterR + 42;
+          cat.bx = Math.cos(ang) * radius;
+          cat.by = Math.sin(ang) * radius;
+          // 轻微错落，避免看起来像机械的同心圆
+          cat.bx += Math.sin(i * 2.1) * 18;
+          cat.by += Math.cos(i * 1.7) * 18;
+        });
+      }
+    }
+
+    // 簇内文档：黄金角螺旋铺开
+    cats.forEach((cat, ci) => {
+      const docs = cat.docs.sort((a, b) => (b.weight || 1) - (a.weight || 1));
       const k = docs.length;
-      const band = Math.max(110, bandTotal * (k / totalDocs));
-      const cy = cursor + band / 2;
-      cat.bx = catX + Math.sin(ci * 1.7) * 16;
-      cat.by = cy;
-
-      const cx = catX + docOffset;
-      const spacing = k <= 6 ? 40 : k <= 20 ? 34 : 30;
+      const spacing = k <= 8 ? 30 : DOC_SPACING;
       docs.forEach((doc, j) => {
-        const angle = j * GOLD + ci * 0.9;
-        const rad = spacing * Math.sqrt(j + 0.6);
-        const wobble = 1 + Math.sin(j * 1.3 + ci) * 0.12;
-        doc.bx = cx + Math.cos(angle) * rad * 1.15 * wobble;
-        doc.by = cy + Math.sin(angle) * rad * 0.82;
-        maxRight = Math.max(maxRight, doc.bx);
+        const ang = j * GOLD + ci * 0.8;
+        const rad = spacing * Math.sqrt(j + 0.45);
+        doc.bx = cat.bx + Math.cos(ang) * rad;
+        doc.by = cat.by + Math.sin(ang) * rad * 0.94;
       });
-
-      // 关键词/标签先挂在文档附近，运行时会自己散开
-      cursor += band;
     });
 
+    // 标签/关键词挂在关联文档周围
+    const ringCount = new Map();
     nodes.forEach((node) => {
-      if (node.bx !== undefined) return;
+      if (node.type === "doc" || node.type === "category") return;
       const linked = edges.filter((e) => e.a === node || e.b === node);
-      const base = linked.length ? (linked[0].a === node ? linked[0].b : linked[0].a) : null;
-      node.bx = (base ? base.bx || 0 : maxRight) + 90 + Math.random() * 60;
-      node.by = (base ? base.by || 0 : 0) + (Math.random() - 0.5) * 50;
+      const base = linked.length
+        ? (linked[0].a === node ? linked[0].b : linked[0].a)
+        : null;
+      const anchor = base && base.type !== "category" ? base : (clusters[0] || null);
+      const key = anchor ? anchor.id : "root";
+      const seq = ringCount.get(key) || 0;
+      ringCount.set(key, seq + 1);
+      const ang = seq * GOLD;
+      const rad = 26 + Math.sqrt(seq) * 9;
+      const ax = anchor ? anchor.bx : 0;
+      const ay = anchor ? anchor.by : 0;
+      node.bx = ax + Math.cos(ang) * rad;
+      node.by = ay + Math.sin(ang) * rad;
     });
-
-    layout.termX = maxRight + 120;
   }
 
-  /* ------------------------------------------------------------ 漂移 */
+  /* ------------------------------------------------------------ 轻漂移 */
 
   function drift(node) {
     const t = clock;
-    const amp = node.type === "category" ? 3.2 : node.type === "term" ? 4 : 2.4;
+    const amp = node.type === "category" ? 1.1 : 1.7;
     return {
-      x: Math.sin(t * 0.42 + node.phase) * amp + Math.sin(t * 0.19 + node.phase * 1.7) * amp * 0.45,
-      y: Math.cos(t * 0.36 + node.phase * 1.2) * amp + Math.cos(t * 0.23 + node.phase) * amp * 0.4,
+      x: Math.sin(t * 0.33 + node.phase) * amp,
+      y: Math.cos(t * 0.28 + node.phase * 1.3) * amp,
     };
   }
 
@@ -280,116 +316,25 @@ window.KBGraph = (function () {
     return node.y + drift(node).y;
   }
 
-  /* ------------------------------------------------------------ 物理（只作用于关键词/标签） */
+  /* ------------------------------------------------------------ 渲染循环 */
 
-  function step() {
-    const a0 = alpha;
-    const t = performance.now() / 1000;
-    clock = t;
-
-    // 关键词之间轻微排斥，避免叠成一团
-    for (let i = 0; i < nodes.length; i += 1) {
-      const a = nodes[i];
-      if (a.type !== "term" && a.type !== "tag") continue;
-      if (!filters[a.type]) continue;
-      for (let j = i + 1; j < nodes.length; j += 1) {
-        const b = nodes[j];
-        if (!filters[b.type]) continue;
-        const dx = b.x - a.x;
-        const dy = b.y - a.y;
-        const d2 = dx * dx + dy * dy;
-        if (d2 > 40000 || d2 < 0.01) continue;
-        const d = Math.sqrt(d2);
-        const min = a.r + b.r + 10;
-        if (d < min) {
-          const push = ((min - d) / d) * 0.12 * a0;
-          a.vx -= dx * push;
-          a.vy -= dy * push;
-          if (b.type === "term" || b.type === "tag") {
-            b.vx += dx * push;
-            b.vy += dy * push;
-          }
-        }
-      }
-    }
-
-    edges.forEach((edge) => {
-      const a = edge.a;
-      const b = edge.b;
-      const aMove = a.type === "term" || a.type === "tag";
-      const bMove = b.type === "term" || b.type === "tag";
-      if (!aMove && !bMove) return;
-      if (!filters[a.type] || !filters[b.type]) return;
-      const dx = b.x - a.x;
-      const dy = b.y - a.y;
-      const dist = Math.hypot(dx, dy) || 1;
-      const rest = edge.type === "tag" ? 80 : 62;
-      const strength = ((dist - rest) / dist) * 0.03 * a0;
-      const fx = dx * strength;
-      const fy = dy * strength;
-      if (aMove) { a.vx += fx; a.vy += fy; }
-      if (bMove) { b.vx -= fx; b.vy -= fy; }
-    });
-
-    nodes.forEach((node) => {
-      if (node.type !== "term" && node.type !== "tag") return;
-      if (!filters[node.type] || node === dragNode) return;
-      node.vx += (layout.termX - node.x) * 0.004 * a0;
-      node.vy += (node.by - node.y) * 0.004 * a0;
-      node.vx *= 0.88;
-      node.vy *= 0.88;
-      const speed = Math.hypot(node.vx, node.vy);
-      if (speed > 6) {
-        node.vx = (node.vx / speed) * 6;
-        node.vy = (node.vy / speed) * 6;
-      }
-      node.x += node.vx;
-      node.y += node.vy;
-    });
-
-    alpha *= 0.975;
-    if (alpha < 0.002) alpha = 0;
-  }
-
-  function kick(value) {
-    alpha = Math.max(alpha, value == null ? 0.55 : value);
-    if (!active) loop();
-  }
-
-  function loop() {
-    active = true;
-    step();
-    if (pendingFit && alpha < 0.02) {
-      pendingFit = false;
-      fit();
-    }
-    draw();
-    if (alpha > 0.002 || dragNode || panning) {
-      requestAnimationFrame(loop);
-    } else {
-      active = false;
-      idleLoop();
-    }
-  }
-
-  // 静止时也保持轻微呼吸感（低帧率重绘）
-  let idleTimer = 0;
-  function idleLoop() {
-    if (idleTimer) return;
-    idleTimer = window.setTimeout(() => {
-      idleTimer = 0;
-      if (!active) {
-        clock = performance.now() / 1000;
-        draw();
-        idleLoop();
-      }
-    }, 120);
+  function startLoop() {
+    if (rafId) return;
+    const tick = (ts) => {
+      rafId = requestAnimationFrame(tick);
+      if (ts - lastFrame < 33) return; // ~30fps，够顺滑也省电
+      lastFrame = ts;
+      if (!host || host.offsetParent === null) return; // 视图隐藏时不绘制
+      clock = ts / 1000;
+      draw();
+    };
+    rafId = requestAnimationFrame(tick);
   }
 
   /* ------------------------------------------------------------ 绘制 */
 
   function visible(node) {
-    return filters[node.type];
+    return !!filters[node.type];
   }
 
   function dimmed(node) {
@@ -414,13 +359,13 @@ window.KBGraph = (function () {
   }
 
   function draw() {
-    if (!ctx) return;
+    if (!ctx || !W || !H) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-    const bg = ctx.createRadialGradient(W * 0.5, H * 0.42, 40, W * 0.5, H * 0.5, Math.max(W, H) * 0.8);
-    bg.addColorStop(0, "rgba(24, 33, 56, 0.9)");
-    bg.addColorStop(0.55, "rgba(9, 13, 22, 0.95)");
-    bg.addColorStop(1, "#05080f");
+    const bg = ctx.createRadialGradient(W * 0.5, H * 0.45, 30, W * 0.5, H * 0.5, Math.max(W, H) * 0.78);
+    bg.addColorStop(0, "#0d1424");
+    bg.addColorStop(0.6, "#080c16");
+    bg.addColorStop(1, "#04060c");
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, W, H);
 
@@ -431,31 +376,45 @@ window.KBGraph = (function () {
     ctx.translate(tx, ty);
     ctx.scale(scale, scale);
 
+    // 星尘背景
     stars.forEach((star) => {
-      const twinkle = 0.55 + 0.45 * Math.sin(t * 0.6 + star.p);
+      const twinkle = 0.6 + 0.4 * Math.sin(t * 0.5 + star.p);
       ctx.globalAlpha = star.a * twinkle;
-      ctx.fillStyle = "#9fb6d8";
+      ctx.fillStyle = "#8fa7c9";
       ctx.beginPath();
       ctx.arc((star.x - tx) / scale, (star.y - ty) / scale, star.r / scale, 0, Math.PI * 2);
       ctx.fill();
     });
     ctx.globalAlpha = 1;
 
-    // 星团光晕
-    nodes.forEach((node) => {
-      if (node.type !== "category" || !filters.category) return;
-      const radius = 110 + (node.weight || 1) * 22;
-      const halo = ctx.createRadialGradient(px(node), py(node), 8, px(node), py(node), radius);
-      halo.addColorStop(0, "rgba(196, 181, 253, 0.16)");
-      halo.addColorStop(0.55, "rgba(140, 120, 220, 0.05)");
-      halo.addColorStop(1, "rgba(140, 120, 220, 0)");
-      ctx.fillStyle = halo;
-      ctx.beginPath();
-      ctx.arc(px(node), py(node), radius, 0, Math.PI * 2);
-      ctx.fill();
-    });
+    // 簇的柔光 + 淡虚线边界
+    if (filters.category) {
+      clusters.forEach((cat) => {
+        const radius = cat.clusterR * 1.5;
+        const cx = px(cat);
+        const cy = py(cat);
+        const halo = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
+        halo.addColorStop(0, hexA(cat.color, 0.1));
+        halo.addColorStop(0.45, hexA(cat.color, 0.045));
+        halo.addColorStop(1, hexA(cat.color, 0));
+        ctx.fillStyle = halo;
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+        ctx.fill();
 
-    // 悬停邻接
+        ctx.save();
+        ctx.globalAlpha = 0.1;
+        ctx.strokeStyle = hexA(cat.color, 0.9);
+        ctx.lineWidth = 1 / scale;
+        ctx.setLineDash([3 / scale, 7 / scale]);
+        ctx.beginPath();
+        ctx.arc(cx, cy, cat.clusterR * 0.94, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      });
+    }
+
+    // 悬停邻接集合
     const nearSet = new Set();
     if (hover) {
       nearSet.add(hover);
@@ -467,14 +426,15 @@ window.KBGraph = (function () {
       });
     }
 
+    // 连线
     edges.forEach((edge) => {
       if (!visible(edge.a) || !visible(edge.b)) return;
       const focused = hover && (edge.a === hover || edge.b === hover);
       const dim = dimmed(edge.a) || dimmed(edge.b);
-      let a = edge.type === "category" ? 0.15 : edge.type === "tag" ? 0.11 : 0.08;
-      if (focused) a = 0.72;
-      else if (hover) a *= 0.28;
-      if (dim) a *= 0.2;
+      let a = edge.type === "category" ? 0.16 : edge.type === "tag" ? 0.1 : 0.07;
+      if (focused) a = 0.6;
+      else if (hover) a *= 0.22;
+      if (dim) a *= 0.18;
       ctx.globalAlpha = a;
       if (focused) {
         const g = ctx.createLinearGradient(px(edge.a), py(edge.a), px(edge.b), py(edge.b));
@@ -482,9 +442,9 @@ window.KBGraph = (function () {
         g.addColorStop(1, COLORS[edge.b.type]);
         ctx.strokeStyle = g;
       } else {
-        ctx.strokeStyle = edge.type === "category" ? "#8fa3d4" : edge.type === "tag" ? "#4fd1c5" : "#6f8fc7";
+        ctx.strokeStyle = edge.a.color || edge.b.color || "#4a5f86";
       }
-      ctx.lineWidth = (focused ? 1.6 : edge.type === "category" ? 1 : 0.65) / scale;
+      ctx.lineWidth = (focused ? 1.5 : 0.7) / scale;
       ctx.beginPath();
       ctx.moveTo(px(edge.a), py(edge.a));
       ctx.lineTo(px(edge.b), py(edge.b));
@@ -492,87 +452,183 @@ window.KBGraph = (function () {
     });
     ctx.globalAlpha = 1;
 
+    // 节点
     nodes.forEach((node) => {
       if (!visible(node)) return;
-      const color = COLORS[node.type] || "#9fb0c8";
+      const color = node.color || COLORS[node.type] || "#93a5c0";
       const isHover = node === hover;
       const dim = dimmed(node);
       const near = nearSet.has(node);
-      const spawn = Math.min(1, Math.max(0, (elapsed - 0.04 * (node.phase % 10)) / 0.7));
+      const spawn = Math.min(1, Math.max(0, (elapsed - node.order * 0.004) / 0.55));
       const ease = 1 - Math.pow(1 - spawn, 3);
-      const breathe = node.type === "category" ? 1 + Math.sin(t * 1.4 + node.phase) * 0.05 : 1;
-      const r = node.r * ease * breathe + (isHover ? 2.2 : 0);
+      const breathe = node.type === "category" ? 1 + Math.sin(t * 1.1 + node.phase) * 0.04 : 1;
+      const r = node.r * ease * breathe + (isHover ? 1.8 : 0);
       const x = px(node);
       const y = py(node);
 
-      ctx.globalAlpha = dim ? 0.12 : near || !hover ? 1 : 0.4;
+      ctx.globalAlpha = dim ? 0.1 : near || !hover ? 1 : 0.32;
 
-      const glowScale = isHover ? 5.2 : node.type === "category" ? 4.6 : 2.9;
-      const gsize = Math.max(6, r * glowScale * 2);
-      ctx.globalAlpha *= isHover ? 0.95 : node.type === "category" ? 0.8 : 0.55;
-      ctx.drawImage(sprite(color), x - gsize / 2, y - gsize / 2, gsize, gsize);
-      ctx.globalAlpha = dim ? 0.12 : near || !hover ? 1 : 0.4;
+      if (node.type !== "term" && node.type !== "tag") {
+        const glowScale = isHover ? 4.2 : node.type === "category" ? 3.4 : 2.6;
+        const gsize = Math.max(8, r * glowScale * 2);
+        ctx.globalAlpha *= node.type === "category" ? 0.72 : 0.5;
+        ctx.drawImage(sprite(color), x - gsize / 2, y - gsize / 2, gsize, gsize);
+        ctx.globalAlpha = dim ? 0.1 : near || !hover ? 1 : 0.32;
+      }
 
       ctx.fillStyle = color;
       ctx.beginPath();
-      ctx.arc(x, y, Math.max(0.6, r * 0.62), 0, Math.PI * 2);
+      ctx.arc(x, y, Math.max(0.7, r * 0.68), 0, Math.PI * 2);
+      ctx.fill();
+
+      // 高光点，让星点更锐利
+      ctx.fillStyle = "rgba(255, 255, 255, 0.55)";
+      ctx.beginPath();
+      ctx.arc(x - r * 0.16, y - r * 0.16, Math.max(0.35, r * 0.2), 0, Math.PI * 2);
       ctx.fill();
 
       if (node.type === "category") {
-        ctx.strokeStyle = "rgba(232, 236, 248, 0.5)";
+        // 四芒星闪光，让核心节点有"恒星"的辨识度
+        const flare = r * 3.4;
+        const lg = ctx.createLinearGradient(x - flare, y, x + flare, y);
+        lg.addColorStop(0, hexA(color, 0));
+        lg.addColorStop(0.5, hexA(color, 0.5));
+        lg.addColorStop(1, hexA(color, 0));
+        ctx.strokeStyle = lg;
+        ctx.lineWidth = 1.1 / scale;
+        ctx.beginPath();
+        ctx.moveTo(x - flare, y);
+        ctx.lineTo(x + flare, y);
+        ctx.stroke();
+        const lgv = ctx.createLinearGradient(x, y - flare, x, y + flare);
+        lgv.addColorStop(0, hexA(color, 0));
+        lgv.addColorStop(0.5, hexA(color, 0.5));
+        lgv.addColorStop(1, hexA(color, 0));
+        ctx.strokeStyle = lgv;
+        ctx.beginPath();
+        ctx.moveTo(x, y - flare);
+        ctx.lineTo(x, y + flare);
+        ctx.stroke();
+
+        ctx.globalAlpha = dim ? 0.12 : 0.42;
+        ctx.strokeStyle = hexA(color, 0.55);
         ctx.lineWidth = 1 / scale;
         ctx.beginPath();
-        ctx.arc(x, y, r + 4 / scale, 0, Math.PI * 2);
+        ctx.arc(x, y, r + 5.5, 0, Math.PI * 2);
         ctx.stroke();
+        ctx.globalAlpha = dim ? 0.1 : near || !hover ? 1 : 0.32;
       }
 
       if (highlight.size && node.type === "doc" && highlight.has(node.docId)) {
-        ctx.globalAlpha = 0.95;
-        ctx.strokeStyle = "#f5c26b";
-        ctx.lineWidth = 1.4 / scale;
+        ctx.globalAlpha = 0.9;
+        ctx.strokeStyle = "#fbbf24";
+        ctx.lineWidth = 1.3 / scale;
         ctx.beginPath();
-        ctx.arc(x, y, r + 6 / scale, 0, Math.PI * 2);
+        ctx.arc(x, y, r + 5, 0, Math.PI * 2);
         ctx.stroke();
       }
     });
     ctx.globalAlpha = 1;
 
-    // 标签
-    const zoom = scale;
-    nodes.forEach((node) => {
-      if (!visible(node)) return;
+    // 标签（带碰撞剔除，先画分类再画文档）
+    const placed = [];
+    const tryPlace = (x, y, w, h) => {
+      for (let i = 0; i < placed.length; i += 1) {
+        const p = placed[i];
+        if (x < p.x + p.w && x + w > p.x && y < p.y + p.h && y + h > p.y) return false;
+      }
+      placed.push({ x, y, w, h });
+      return true;
+    };
+
+    const ordered = nodes
+      .filter((n) => visible(n))
+      .sort((a, b) => (rank(a) - rank(b)) || ((b.degree || 0) - (a.degree || 0)));
+
+    ordered.forEach((node) => {
       const isHover = node === hover;
       const isCategory = node.type === "category";
       const isDoc = node.type === "doc";
-      let show = isHover || isCategory;
-      if (!show && isDoc && showLabels) show = node.degree >= 3 || zoom > 0.9;
-      if (!show && !isDoc && !isCategory && showLabels) show = zoom > 1.4;
+      let show = false;
+      if (isHover) show = true;
+      else if (isCategory) show = showLabels;
+      else if (isDoc) show = showLabels && (scale > 1.12 || node.degree >= 7);
+      else show = showLabels && scale > 1.55;
+
       if (!show) return;
 
-      const size = (isCategory ? 13 : isDoc ? 11.5 : 10) + (isHover ? 1 : 0);
-      const label = node.label.length > 18 ? node.label.slice(0, 17) + "…" : node.label;
-      const x = px(node);
-      const y = py(node) + node.r + (size * 1.3) / scale;
+      const size = isCategory ? 12.5 : 10.5;
+      let label = node.label.length > 15 ? node.label.slice(0, 14) + "…" : node.label;
+      if (isCategory) label = `${label} · ${node.weight || (node.docs ? node.docs.length : 0)}`;
 
-      ctx.font = `600 ${size / scale}px -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif`;
-      if (isCategory || isHover) {
-        const textW = ctx.measureText(label).width * scale;
-        const padX = 7;
-        ctx.globalAlpha = dimmed(node) ? 0.15 : 0.72;
-        ctx.fillStyle = "rgba(7, 10, 18, 0.78)";
-        roundRect(ctx, x - textW / 2 - padX, y - size / scale, textW + padX * 2, (size * 1.75) / scale, (size * 0.6) / scale);
-        ctx.fill();
-      }
-
-      ctx.globalAlpha = dimmed(node) ? 0.16 : isHover ? 1 : 0.9;
+      ctx.font = `${isCategory || isHover ? 600 : 500} ${size / scale}px -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillStyle = isHover ? "#ffffff" : isCategory ? "#ece8ff" : "rgba(216, 227, 246, 0.92)";
+
+      // 世界坐标下的包围盒（文字尺寸需除以 scale 才与世界坐标同量纲）
+      const boxW = ctx.measureText(label).width + 10 / scale;
+      const boxH = (size / scale) * 1.55;
+      const gapY = node.r + 3 + boxH / 2;
+      const gapX = node.r + 3 + boxW / 2;
+
+      const nx = px(node);
+      const ny = py(node);
+      const candidates = [
+        [nx, ny + gapY],
+        [nx, ny - gapY],
+        [nx + gapX, ny],
+        [nx - gapX, ny],
+        [nx + gapX * 0.85, ny + gapY * 0.85],
+        [nx - gapX * 0.85, ny + gapY * 0.85],
+        [nx + gapX * 0.85, ny - gapY * 0.85],
+        [nx - gapX * 0.85, ny - gapY * 0.85],
+      ];
+
+      let x = nx;
+      let y = ny + gapY;
+      let ok = !!isHover;
+      if (!ok) {
+        for (let i = 0; i < candidates.length; i += 1) {
+          const cx = candidates[i][0];
+          const cy = candidates[i][1];
+          if (tryPlace(cx - boxW / 2, cy - boxH / 2, boxW, boxH)) {
+            x = cx;
+            y = cy;
+            ok = true;
+            break;
+          }
+        }
+      }
+      if (!ok) return;
+
+      if (isCategory || isHover) {
+        ctx.globalAlpha = dimmed(node) ? 0.12 : 0.88;
+        ctx.fillStyle = "rgba(6, 9, 16, 0.74)";
+        ctx.strokeStyle = hexA(node.color || COLORS[node.type] || "#93a5c0", 0.3);
+        ctx.lineWidth = 0.9 / scale;
+        roundRect(ctx, x - boxW / 2, y - boxH / 2, boxW, boxH, 5 / scale);
+        ctx.fill();
+        ctx.stroke();
+      }
+
+      ctx.globalAlpha = dimmed(node) ? 0.14 : isHover ? 1 : 0.88;
+      ctx.fillStyle = isHover
+        ? "#ffffff"
+        : isCategory
+          ? (node.color || "#e9e3ff")
+          : "rgba(216, 228, 245, 0.95)";
       ctx.fillText(label, x, y);
     });
 
     ctx.restore();
     ctx.globalAlpha = 1;
+  }
+
+  function rank(node) {
+    if (node === hover) return 0;
+    if (node.type === "category") return 1;
+    if (node.type === "doc") return 2;
+    return 3;
   }
 
   /* ------------------------------------------------------------ 交互 */
@@ -624,13 +680,11 @@ window.KBGraph = (function () {
     const node = hitTest(event.clientX, event.clientY);
     if (node) {
       dragNode = node;
-      node.vx = 0;
-      node.vy = 0;
     } else {
       panning = true;
       canvas.style.cursor = "grabbing";
     }
-    kick(0.3);
+    draw();
   }
 
   function onMove(event) {
@@ -641,10 +695,8 @@ window.KBGraph = (function () {
       dragNode.y = world.y - d.y;
       dragNode.bx = dragNode.x;
       dragNode.by = dragNode.y;
-      dragNode.vx = 0;
-      dragNode.vy = 0;
       moved = true;
-      kick(0.2);
+      draw();
       return;
     }
     if (panning) {
@@ -685,7 +737,7 @@ window.KBGraph = (function () {
         else if (node.type === "term") hooks.searchTerm(node.label);
         else if (node.type === "category") hooks.searchTerm(node.label === "未分类" ? "" : node.label);
       }
-      kick(0.2);
+      draw();
     }
     panning = false;
     if (canvas) canvas.style.cursor = "grab";
@@ -727,21 +779,21 @@ window.KBGraph = (function () {
   /* ------------------------------------------------------------ 视图控制 */
 
   function fit(padding) {
-    const pad = padding || 80;
+    const pad = padding || 58;
     const list = nodes.filter(visible);
     if (!list.length) return;
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     list.forEach((node) => {
       const x = px(node);
       const y = py(node);
-      minX = Math.min(minX, x);
-      minY = Math.min(minY, y);
-      maxX = Math.max(maxX, x);
-      maxY = Math.max(maxY, y);
+      minX = Math.min(minX, x - node.r);
+      minY = Math.min(minY, y - node.r);
+      maxX = Math.max(maxX, x + node.r);
+      maxY = Math.max(maxY, y + node.r);
     });
-    const width = Math.max(maxX - minX, 140);
-    const height = Math.max(maxY - minY, 140);
-    scale = Math.min((W - pad * 2) / width, (H - pad * 2) / height, 2);
+    const width = Math.max(maxX - minX, 160);
+    const height = Math.max(maxY - minY, 160);
+    scale = Math.min((W - pad * 2) / width, (H - pad * 2) / height, 1.75);
     scale = Math.max(0.2, scale);
     tx = W / 2 - ((minX + maxX) / 2) * scale;
     ty = H / 2 - ((minY + maxY) / 2) * scale;
@@ -749,28 +801,26 @@ window.KBGraph = (function () {
   }
 
   function reheat() {
-    nodes.forEach((node) => {
-      node.vx = (Math.random() - 0.5) * 2;
-      node.vy = (Math.random() - 0.5) * 2;
-    });
     startedAt = performance.now();
-    alpha = 1;
-    kick(1);
+    nodes.forEach((node) => {
+      node.order = Math.floor(Math.random() * 40);
+    });
+    draw();
   }
 
   function setFilter(type, on) {
     filters[type] = !!on;
-    if (!active) draw();
+    draw();
   }
 
   function setLabels(on) {
     showLabels = !!on;
-    if (!active) draw();
+    draw();
   }
 
   function setHighlight(docIds) {
     highlight = new Set(docIds || []);
-    if (!active) draw();
+    draw();
   }
 
   function focusDoc(docId) {
