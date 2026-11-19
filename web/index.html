@@ -44,15 +44,15 @@
   <section class="viewer" id="viewer">
     <div class="view-tabs">
       <div class="seg">
-        <button class="view-tab active" data-view="doc" id="tab-doc">文档</button>
-        <button class="view-tab" data-view="graph" id="tab-graph">星图</button>
+        <button class="view-tab active" data-view="graph" id="tab-graph">星图</button>
+        <button class="view-tab" data-view="doc" id="tab-doc">文档</button>
       </div>
       <div class="grow"></div>
       <span class="muted tab-hint" id="graph-count"></span>
     </div>
 
     <div class="view-body">
-      <div id="view-doc" class="view-pane">
+      <div id="view-doc" class="view-pane hidden">
 
         <!-- ---------------------------------------------------- 首页 -->
         <div id="page-home" class="page">
@@ -69,21 +69,23 @@
             </div>
           </div>
 
-          <section class="home-section">
-            <div class="home-head">
-              <h2>概览</h2>
-              <span class="pulse-dot" title="服务在线"></span>
-            </div>
-            <div class="stats" id="stats"></div>
-          </section>
+          <div class="home-grid">
+            <section class="home-section">
+              <div class="home-head">
+                <h2>概览</h2>
+                <span class="pulse-dot" title="服务在线"></span>
+              </div>
+              <div class="stats" id="stats"></div>
+            </section>
 
-          <section class="home-section">
-            <div class="home-head">
-              <h2>分类</h2>
-              <span class="muted" id="cats-meta"></span>
-            </div>
-            <div class="cat-grid" id="cats"></div>
-          </section>
+            <section class="home-section">
+              <div class="home-head">
+                <h2>分类</h2>
+                <span class="muted" id="cats-meta"></span>
+              </div>
+              <div class="cat-grid" id="cats"></div>
+            </section>
+          </div>
 
           <section class="home-section">
             <div class="home-head">
@@ -113,7 +115,7 @@
         <article id="doc" class="doc hidden" aria-live="polite"></article>
       </div>
 
-      <div id="view-graph" class="view-pane hidden">
+      <div id="view-graph" class="view-pane">
         <canvas id="graph-canvas"></canvas>
 
         <div class="graph-toolbar">

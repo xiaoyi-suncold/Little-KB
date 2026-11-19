@@ -26,7 +26,7 @@
     query: "",
     searchTimer: 0,
     requestSeq: 0,
-    view: "doc",          // doc | graph
+    view: "graph",        // doc | graph（默认首屏为星图）
     page: "home",         // home | list | doc
     lastPage: "home",     // 文档页的返回目标
     graphLoaded: false,
@@ -376,7 +376,7 @@
     $("#search").value = "";
     $("#search-clear").classList.add("hidden");
     showPage("home");
-    history.replaceState(null, "", location.pathname);
+    history.replaceState(null, "", "#home");
     document.title = "Little KB · 我的知识库";
     document.querySelectorAll(".doc-item").forEach((node) => node.classList.remove("active"));
   }
@@ -493,6 +493,16 @@
 
   /* ------------------------------------------------------------------ 图谱 */
 
+  function docHash() {
+    if (state.page === "doc" && state.currentDoc) return "#doc-" + state.currentDoc.id;
+    if (state.page === "list") {
+      return state.mode === "search"
+        ? "#search-" + encodeURIComponent(state.query)
+        : "#cat-" + encodeURIComponent(state.activeCat === null ? "__all__" : state.activeCat);
+    }
+    return "#home";
+  }
+
   function switchView(view) {
     state.view = view;
     $("#view-doc").classList.toggle("hidden", view !== "doc");
@@ -502,8 +512,8 @@
     if (view === "graph") {
       ensureGraph();
       history.replaceState(null, "", "#graph");
-    } else if (state.currentDoc) {
-      history.replaceState(null, "", "#doc-" + state.currentDoc.id);
+    } else {
+      history.replaceState(null, "", docHash());
     }
   }
 
@@ -667,7 +677,7 @@
           : "#cat-" + encodeURIComponent(state.activeCat === null ? "__all__" : state.activeCat);
         history.replaceState(null, "", hash);
       } else {
-        history.replaceState(null, "", location.pathname);
+        history.replaceState(null, "", "#home");
         document.title = "Little KB · 我的知识库";
       }
     };
@@ -902,23 +912,29 @@
       await runSearch(initialQuery.trim());
     }
     if (new URLSearchParams(location.search).get("upload") === "1") openModal();
-    if (location.hash === "#graph") {
+    if (!location.hash || location.hash === "#graph") {
       switchView("graph");
     } else {
       const docMatch = /^#doc-(\d+)$/.exec(location.hash);
       const catMatch = /^#cat-(.*)$/.exec(location.hash);
       const searchMatch = /^#search-(.*)$/.exec(location.hash);
       if (docMatch) {
+        switchView("doc");
         openDoc(Number(docMatch[1]));
       } else if (catMatch) {
+        switchView("doc");
         const raw = decodeURIComponent(catMatch[1]);
         openCategory(raw === "__all__" ? null : raw);
       } else if (searchMatch) {
+        switchView("doc");
         const q = decodeURIComponent(searchMatch[1]);
         $("#search").value = q;
         await runSearch(q);
-      } else {
+      } else if (location.hash === "#home") {
+        switchView("doc");
         showPage("home");
+      } else {
+        switchView("graph");
       }
     }
   }

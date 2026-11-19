@@ -546,7 +546,7 @@ window.KBGraph = (function () {
       .sort((a, b) => (rank(a) - rank(b)) || ((b.degree || 0) - (a.degree || 0)));
 
     // 文档标签限量，避免画面过大时标签把星图糊满
-    const DOC_LABEL_CAP = 24;
+    const DOC_LABEL_CAP = 14;
     let docLabels = 0;
 
     ordered.forEach((node) => {
