@@ -41,33 +41,6 @@
 </header>
 
 <main class="layout">
-  <aside class="sidebar">
-    <section class="overview">
-      <div class="overview-head">
-        <h2>概览</h2>
-        <span class="pulse-dot" title="服务在线"></span>
-      </div>
-      <div class="stats" id="stats"></div>
-    </section>
-
-    <section class="panel-section">
-      <div class="section-head">
-        <h2>分类</h2>
-        <button id="btn-cat-all" class="link-btn">全部</button>
-      </div>
-      <div id="cats" class="cats"></div>
-    </section>
-
-    <section class="panel-section grow">
-      <div class="section-head">
-        <h2 id="list-title">全部文档</h2>
-        <span class="muted" id="list-meta"></span>
-      </div>
-      <ul id="list" class="doc-list"></ul>
-      <div id="list-empty" class="empty-hint hidden"></div>
-    </section>
-  </aside>
-
   <section class="viewer" id="viewer">
     <div class="view-tabs">
       <div class="seg">
@@ -80,34 +53,63 @@
 
     <div class="view-body">
       <div id="view-doc" class="view-pane">
-        <div id="welcome" class="welcome">
-          <div class="welcome-card">
+
+        <!-- ---------------------------------------------------- 首页 -->
+        <div id="page-home" class="page">
+          <div class="home-hero">
             <div class="welcome-eyebrow">PERSONAL KNOWLEDGE BASE</div>
             <h1>把散落的文件，<br /><span class="grad-text">织成一张会生长的星图</span></h1>
             <p class="welcome-sub">
               文件原样躺在 <code id="kb-path">kb/</code> 里，SQLite FTS5 负责全文检索。
               没有向量库、没有第三方依赖，改完文件点一下重建索引就行。
             </p>
-            <div class="welcome-grid">
-              <div class="tip">
-                <span class="tip-icon">⇪</span>
-                <b>上传</b>
-                <span>md / txt / docx / html / 代码 / 表格，多选一起传。</span>
-              </div>
-              <div class="tip">
-                <span class="tip-icon">⌕</span>
-                <b>检索</b>
-                <span>中文按字建索引，空格分词，命中片段自动高亮。</span>
-              </div>
-              <div class="tip">
-                <span class="tip-icon">✦</span>
-                <b>星图</b>
-                <span>文档、分类、标签、关键词长成一张可拖拽的网络。</span>
-              </div>
+            <div class="hero-actions">
+              <button class="btn btn-primary btn-lg" id="btn-upload-2">上传第一个文件</button>
+              <button class="btn btn-ghost btn-lg" id="btn-goto-graph">打开星图</button>
             </div>
-            <button class="btn btn-primary btn-lg" id="btn-upload-2">上传第一个文件</button>
           </div>
+
+          <section class="home-section">
+            <div class="home-head">
+              <h2>概览</h2>
+              <span class="pulse-dot" title="服务在线"></span>
+            </div>
+            <div class="stats" id="stats"></div>
+          </section>
+
+          <section class="home-section">
+            <div class="home-head">
+              <h2>分类</h2>
+              <span class="muted" id="cats-meta"></span>
+            </div>
+            <div class="cat-grid" id="cats"></div>
+          </section>
+
+          <section class="home-section">
+            <div class="home-head">
+              <h2>最近更新</h2>
+              <span class="muted" id="recent-meta"></span>
+              <button class="link-btn" id="btn-view-all">查看全部</button>
+            </div>
+            <ul class="doc-list recent-list" id="recent-list"></ul>
+          </section>
         </div>
+
+        <!-- ---------------------------------------------------- 列表页 -->
+        <div id="page-list" class="page hidden">
+          <div class="list-head">
+            <button class="back-btn" id="btn-back" title="返回首页">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+              返回
+            </button>
+            <h1 id="list-title">全部文档</h1>
+            <span class="muted" id="list-meta"></span>
+          </div>
+          <ul id="list" class="doc-list"></ul>
+          <div id="list-empty" class="empty-hint hidden"></div>
+        </div>
+
+        <!-- ---------------------------------------------------- 文档页 -->
         <article id="doc" class="doc hidden" aria-live="polite"></article>
       </div>
 

@@ -24,3 +24,6 @@ venv/
 # 系统
 Thumbs.db
 .DS_Store
+
+# Git Credential Manager 运行时残留
+system-commandline-sentinel-files/

@@ -3,6 +3,12 @@
   "use strict";
 
   const $ = (sel) => document.querySelector(sel);
+  /* 与星图配色一致的分类色板 */
+  const CAT_HUES = [
+    "#a78bfa", "#60a5fa", "#34d399", "#f472b6",
+    "#fbbf24", "#38bdf8", "#c084fc", "#4ade80",
+    "#fb923c", "#e879f9", "#22d3ee", "#a3e635",
+  ];
   const el = (tag, cls, html) => {
     const node = document.createElement(tag);
     if (cls) node.className = cls;
@@ -21,6 +27,8 @@
     searchTimer: 0,
     requestSeq: 0,
     view: "doc",          // doc | graph
+    page: "home",         // home | list | doc
+    lastPage: "home",     // 文档页的返回目标
     graphLoaded: false,
   };
 
@@ -276,18 +284,26 @@
     const box = $("#cats");
     box.innerHTML = "";
     const total = state.groups.reduce((sum, g) => sum + g.count, 0);
-    const all = el("button", "chip" + (state.activeCat === null ? " active" : ""));
-    all.innerHTML = "全部 <span class='count'>" + total + "</span>";
-    all.onclick = () => setCategory(null);
-    box.appendChild(all);
+    $("#cats-meta").textContent = state.groups.length
+      ? state.groups.length + " 个分类 · 共 " + total + " 篇"
+      : "";
 
-    state.groups.forEach((group) => {
-      const chip = el("button", "chip" + (state.activeCat === group.key ? " active" : ""));
-      chip.innerHTML = escapeHtml(group.name) + " <span class='count'>" + group.count + "</span>";
-      chip.title = group.key || "根目录下的文件";
-      chip.onclick = () => setCategory(group.key);
-      box.appendChild(chip);
+    state.groups.forEach((group, index) => {
+      const card = el("button", "cat-card");
+      const hue = CAT_HUES[index % CAT_HUES.length];
+      card.innerHTML =
+        '<span class="cat-dot" style="background:' + hue + ';box-shadow:0 0 10px ' + hue + '66"></span>' +
+        '<span class="cat-name">' + escapeHtml(group.name) + "</span>" +
+        '<span class="cat-count">' + group.count + "<i>篇</i></span>" +
+        '<span class="cat-arrow" aria-hidden="true">→</span>';
+      card.title = group.key ? "打开分类：" + group.key : "根目录下的文件";
+      card.onclick = () => openCategory(group.key);
+      box.appendChild(card);
     });
+
+    if (!state.groups.length) {
+      box.innerHTML = '<div class="empty-hint">还没有分类，上传文件后会自动出现。</div>';
+    }
 
     const options = $("#cat-options");
     options.innerHTML = "";
@@ -299,17 +315,39 @@
     });
   }
 
+  function allDocs() {
+    return state.groups.flatMap((g) => g.docs || []);
+  }
+
+  function renderRecent() {
+    const list = $("#recent-list");
+    list.innerHTML = "";
+    const docs = allDocs()
+      .slice()
+      .sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")))
+      .slice(0, 6);
+    $("#recent-meta").textContent = docs.length ? "最近 " + docs.length + " 篇" : "";
+    if (!docs.length) {
+      list.innerHTML = '<li class="empty-hint">还没有文件，点右上角“上传”开始。</li>';
+      return;
+    }
+    docs.forEach((doc) => list.appendChild(docItem(doc, true)));
+  }
+
   function visibleDocs() {
     if (state.activeCat === null) return state.groups.flatMap((g) => g.docs);
     const group = state.groups.find((g) => g.key === state.activeCat);
     return group ? group.docs : [];
   }
 
-  function docItem(doc) {
+  function docItem(doc, compact) {
     const li = el("li", "doc-item");
     if (state.currentDoc && state.currentDoc.id === doc.id) li.classList.add("active");
     const row = el("div", "row");
     row.appendChild(el("span", "title", escapeHtml(doc.title)));
+    if (compact && doc.path && doc.path.includes("/")) {
+      row.appendChild(el("span", "badge", escapeHtml(doc.path.split("/")[0])));
+    }
     row.appendChild(el("span", "ext", escapeHtml((doc.ext || "txt").replace(".", "") || "txt")));
     li.appendChild(row);
     const meta = el("div", "meta");
@@ -321,6 +359,43 @@
     return li;
   }
 
+  function showPage(page) {
+    state.page = page;
+    $("#page-home").classList.toggle("hidden", page !== "home");
+    $("#page-list").classList.toggle("hidden", page !== "list");
+    $("#doc").classList.toggle("hidden", page !== "doc");
+    $("#view-doc").scrollTop = 0;
+  }
+
+  function goHome() {
+    state.activeCat = null;
+    state.mode = "browse";
+    state.hits = [];
+    state.currentDoc = null;
+    state.query = "";
+    $("#search").value = "";
+    $("#search-clear").classList.add("hidden");
+    showPage("home");
+    history.replaceState(null, "", location.pathname);
+    document.title = "Little KB · 我的知识库";
+    document.querySelectorAll(".doc-item").forEach((node) => node.classList.remove("active"));
+  }
+
+  /** 进入分类列表页；传 null 表示"全部文档" */
+  function openCategory(cat) {
+    state.activeCat = cat;
+    state.mode = "browse";
+    state.hits = [];
+    state.currentDoc = null;
+    $("#search").value = "";
+    $("#search-clear").classList.add("hidden");
+    renderList();
+    showPage("list");
+    const name = cat === null ? "全部文档" : (cat || "未分类");
+    history.replaceState(null, "", "#cat-" + encodeURIComponent(cat === null ? "__all__" : cat));
+    document.title = name + " · Little KB";
+  }
+
   function renderList() {
     const list = $("#list");
     list.innerHTML = "";
@@ -328,8 +403,8 @@
     empty.classList.add("hidden");
 
     if (state.mode === "search") {
-      $("#list-title").textContent = "搜索结果";
-      $("#list-meta").textContent = state.hits.length ? state.hits.length + " 条" : "";
+      $("#list-title").textContent = "搜索「" + state.query + "」";
+      $("#list-meta").textContent = state.hits.length ? state.hits.length + " 条结果" : "0 条结果";
       if (!state.hits.length) {
         empty.textContent = "没有命中，试试更短的关键词或单个词。";
         empty.classList.remove("hidden");
@@ -362,17 +437,6 @@
     docs.forEach((doc) => list.appendChild(docItem(doc)));
   }
 
-  function setCategory(cat) {
-    state.activeCat = cat;
-    if ($("#search").value.trim()) {
-      runSearch($("#search").value.trim());
-    } else {
-      renderCats();
-      renderList();
-    }
-    renderCats();
-  }
-
   async function loadStats() {
     try {
       renderStats(await api("/api/stats"));
@@ -386,7 +450,8 @@
       const data = await api("/api/tree");
       state.groups = data.groups || [];
       renderCats();
-      renderList();
+      renderRecent();
+      if (state.page === "list") renderList();
     } catch (err) {
       toast(err.message, "error");
     }
@@ -401,13 +466,13 @@
       state.mode = "browse";
       state.hits = [];
       $("#search-clear").classList.add("hidden");
-      renderList();
+      if (state.page === "list") goHome();
+      else renderList();
       return;
     }
     $("#search-clear").classList.remove("hidden");
     const seq = ++state.requestSeq;
     const params = new URLSearchParams({ q: query, limit: "30" });
-    if (state.activeCat !== null) params.set("category", state.activeCat);
     try {
       const data = await api("/api/search?" + params.toString());
       if (seq !== state.requestSeq) return;
@@ -415,11 +480,11 @@
       state.hits = data.hits || [];
       state.terms = data.terms || [];
       renderList();
+      showPage("list");
+      history.replaceState(null, "", "#search-" + encodeURIComponent(query));
+      document.title = "搜索「" + query + "」 · Little KB";
       if (window.KBGraph && state.graphLoaded) {
         window.KBGraph.setHighlight(state.hits.map((h) => h.id));
-      }
-      if (!state.hits.length && data.mode === "none") {
-        $("#list-meta").textContent = "0 条";
       }
     } catch (err) {
       if (seq === state.requestSeq) toast(err.message, "error");
@@ -513,7 +578,7 @@
   }
 
   function renderDoc(doc) {
-    $("#welcome").classList.add("hidden");
+    showPage("doc");
     const article = $("#doc");
     article.classList.remove("hidden");
     const tags = (doc.tags || []).map((t) => '<span class="tag">' + escapeHtml(t) + "</span>").join("");
@@ -528,6 +593,10 @@
     const bodyHtml = highlightHtml(renderMarkdown(stripTitleHeading(doc.content, doc.title)), state.terms);
 
     article.innerHTML =
+      '<button class="back-btn doc-back" id="btn-back-doc">' +
+        '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>' +
+        "返回" +
+      "</button>" +
       '<div class="doc-head">' +
         "<h1>" + escapeHtml(doc.title) + "</h1>" +
         '<div class="doc-meta">' + meta + "</div>" +
@@ -581,14 +650,26 @@
         await api("/api/doc/" + doc.id, { method: "DELETE" });
         toast("已删除", "ok");
         state.currentDoc = null;
-        $("#doc").classList.add("hidden");
-        $("#welcome").classList.remove("hidden");
-        document.title = "Little KB · 我的知识库";
+        goHome();
         await loadTree();
         await loadStats();
         invalidateGraph();
         if (state.mode === "search") runSearch(state.query);
       } catch (err) { toast(err.message, "error"); }
+    };
+
+    $("#btn-back-doc").onclick = () => {
+      const target = state.lastPage === "doc" ? "home" : state.lastPage;
+      showPage(target);
+      if (target === "list") {
+        const hash = state.mode === "search"
+          ? "#search-" + encodeURIComponent(state.query)
+          : "#cat-" + encodeURIComponent(state.activeCat === null ? "__all__" : state.activeCat);
+        history.replaceState(null, "", hash);
+      } else {
+        history.replaceState(null, "", location.pathname);
+        document.title = "Little KB · 我的知识库";
+      }
     };
 
     const mark = article.querySelector("mark");
@@ -599,6 +680,7 @@
     try {
       const doc = await api("/api/doc/" + id);
       if (state.view !== "doc") switchView("doc");
+      if (state.page !== "doc") state.lastPage = state.page;
       state.currentDoc = doc;
       renderDoc(doc);
       document.title = doc.title + " · Little KB";
@@ -781,8 +863,12 @@
     $("#btn-reindex").onclick = reindex;
     $("#tab-doc").onclick = () => switchView("doc");
     $("#tab-graph").onclick = () => switchView("graph");
-    const allBtn = $("#btn-cat-all");
-    if (allBtn) allBtn.onclick = () => setCategory(null);
+    const gotoGraph = $("#btn-goto-graph");
+    if (gotoGraph) gotoGraph.onclick = () => switchView("graph");
+    const back = $("#btn-back");
+    if (back) back.onclick = () => goHome();
+    const viewAll = $("#btn-view-all");
+    if (viewAll) viewAll.onclick = () => openCategory(null);
     $("#btn-theme").onclick = () => {
       const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
       applyTheme(next);
@@ -819,8 +905,21 @@
     if (location.hash === "#graph") {
       switchView("graph");
     } else {
-      const match = /#doc-(\d+)/.exec(location.hash);
-      if (match) openDoc(Number(match[1]));
+      const docMatch = /^#doc-(\d+)$/.exec(location.hash);
+      const catMatch = /^#cat-(.*)$/.exec(location.hash);
+      const searchMatch = /^#search-(.*)$/.exec(location.hash);
+      if (docMatch) {
+        openDoc(Number(docMatch[1]));
+      } else if (catMatch) {
+        const raw = decodeURIComponent(catMatch[1]);
+        openCategory(raw === "__all__" ? null : raw);
+      } else if (searchMatch) {
+        const q = decodeURIComponent(searchMatch[1]);
+        $("#search").value = q;
+        await runSearch(q);
+      } else {
+        showPage("home");
+      }
     }
   }
 

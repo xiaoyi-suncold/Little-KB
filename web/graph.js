@@ -545,6 +545,10 @@ window.KBGraph = (function () {
       .filter((n) => visible(n))
       .sort((a, b) => (rank(a) - rank(b)) || ((b.degree || 0) - (a.degree || 0)));
 
+    // 文档标签限量，避免画面过大时标签把星图糊满
+    const DOC_LABEL_CAP = 24;
+    let docLabels = 0;
+
     ordered.forEach((node) => {
       const isHover = node === hover;
       const isCategory = node.type === "category";
@@ -552,7 +556,7 @@ window.KBGraph = (function () {
       let show = false;
       if (isHover) show = true;
       else if (isCategory) show = showLabels;
-      else if (isDoc) show = showLabels && (scale > 1.12 || node.degree >= 7);
+      else if (isDoc) show = showLabels && docLabels < DOC_LABEL_CAP;
       else show = showLabels && scale > 1.55;
 
       if (!show) return;
@@ -600,6 +604,8 @@ window.KBGraph = (function () {
         }
       }
       if (!ok) return;
+
+      if (isDoc) docLabels += 1;
 
       if (isCategory || isHover) {
         ctx.globalAlpha = dimmed(node) ? 0.12 : 0.88;
