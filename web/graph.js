@@ -153,6 +153,44 @@ window.KBGraph = (function () {
     return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
   }
 
+  /** 按比例压暗，浅色主题下保证文字对比度 */
+  function shade(hex, k) {
+    const v = hex.replace("#", "");
+    const n = parseInt(v.length === 3 ? v.replace(/(.)/g, "$1$1") : v, 16);
+    const r = Math.round(((n >> 16) & 255) * (1 - k));
+    const g = Math.round(((n >> 8) & 255) * (1 - k));
+    const b = Math.round((n & 255) * (1 - k));
+    return `rgb(${r}, ${g}, ${b})`;
+  }
+
+  /** 画布配色随主题切换 */
+  function palette() {
+    if (document.documentElement.dataset.theme === "light") {
+      return {
+        light: true,
+        bg0: "#f4f6fc", bg1: "#eaedf7", bg2: "#dfe4f1",
+        star: "#7f92b8", starAlpha: 0.45,
+        edge: "#9aa9c6",
+        labelBg: "rgba(255, 255, 255, 0.92)",
+        labelBorder: "rgba(40, 60, 110, 0.18)",
+        labelText: "rgba(26, 34, 51, 0.92)",
+        hoverText: "#0a0f1c",
+        halo: 0.7,
+      };
+    }
+    return {
+      light: false,
+      bg0: "#0d1424", bg1: "#080c16", bg2: "#04060c",
+      star: "#8fa7c9", starAlpha: 1,
+      edge: "#4a5f86",
+      labelBg: "rgba(6, 9, 16, 0.74)",
+      labelBorder: "rgba(120, 150, 220, 0.2)",
+      labelText: "rgba(216, 228, 245, 0.95)",
+      hoverText: "#ffffff",
+      halo: 1,
+    };
+  }
+
   /* ------------------------------------------------------------ 数据 */
 
   function load(data) {
@@ -362,10 +400,11 @@ window.KBGraph = (function () {
     if (!ctx || !W || !H) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
+    const P = palette();
     const bg = ctx.createRadialGradient(W * 0.5, H * 0.45, 30, W * 0.5, H * 0.5, Math.max(W, H) * 0.78);
-    bg.addColorStop(0, "#0d1424");
-    bg.addColorStop(0.6, "#080c16");
-    bg.addColorStop(1, "#04060c");
+    bg.addColorStop(0, P.bg0);
+    bg.addColorStop(0.6, P.bg1);
+    bg.addColorStop(1, P.bg2);
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, W, H);
 
@@ -379,8 +418,8 @@ window.KBGraph = (function () {
     // 星尘背景
     stars.forEach((star) => {
       const twinkle = 0.6 + 0.4 * Math.sin(t * 0.5 + star.p);
-      ctx.globalAlpha = star.a * twinkle;
-      ctx.fillStyle = "#8fa7c9";
+      ctx.globalAlpha = star.a * twinkle * P.starAlpha;
+      ctx.fillStyle = P.star;
       ctx.beginPath();
       ctx.arc((star.x - tx) / scale, (star.y - ty) / scale, star.r / scale, 0, Math.PI * 2);
       ctx.fill();
@@ -394,8 +433,8 @@ window.KBGraph = (function () {
         const cx = px(cat);
         const cy = py(cat);
         const halo = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
-        halo.addColorStop(0, hexA(cat.color, 0.1));
-        halo.addColorStop(0.45, hexA(cat.color, 0.045));
+        halo.addColorStop(0, hexA(cat.color, P.light ? 0.16 : 0.1));
+        halo.addColorStop(0.45, hexA(cat.color, P.light ? 0.07 : 0.045));
         halo.addColorStop(1, hexA(cat.color, 0));
         ctx.fillStyle = halo;
         ctx.beginPath();
@@ -403,7 +442,7 @@ window.KBGraph = (function () {
         ctx.fill();
 
         ctx.save();
-        ctx.globalAlpha = 0.1;
+        ctx.globalAlpha = P.light ? 0.22 : 0.1;
         ctx.strokeStyle = hexA(cat.color, 0.9);
         ctx.lineWidth = 1 / scale;
         ctx.setLineDash([3 / scale, 7 / scale]);
@@ -442,7 +481,7 @@ window.KBGraph = (function () {
         g.addColorStop(1, COLORS[edge.b.type]);
         ctx.strokeStyle = g;
       } else {
-        ctx.strokeStyle = edge.a.color || edge.b.color || "#4a5f86";
+        ctx.strokeStyle = edge.a.color || edge.b.color || P.edge;
       }
       ctx.lineWidth = (focused ? 1.5 : 0.7) / scale;
       ctx.beginPath();
@@ -476,7 +515,7 @@ window.KBGraph = (function () {
         ctx.globalAlpha = dim ? 0.1 : near || !hover ? 1 : 0.32;
       }
 
-      ctx.fillStyle = color;
+      ctx.fillStyle = P.light ? shade(color, 0.16) : color;
       ctx.beginPath();
       ctx.arc(x, y, Math.max(0.7, r * 0.68), 0, Math.PI * 2);
       ctx.fill();
@@ -608,21 +647,20 @@ window.KBGraph = (function () {
       if (isDoc) docLabels += 1;
 
       if (isCategory || isHover) {
-        ctx.globalAlpha = dimmed(node) ? 0.12 : 0.88;
-        ctx.fillStyle = "rgba(6, 9, 16, 0.74)";
-        ctx.strokeStyle = hexA(node.color || COLORS[node.type] || "#93a5c0", 0.3);
+        ctx.globalAlpha = dimmed(node) ? 0.12 : 0.9;
+        ctx.fillStyle = P.labelBg;
+        ctx.strokeStyle = hexA(node.color || COLORS[node.type] || "#93a5c0", P.light ? 0.45 : 0.3);
         ctx.lineWidth = 0.9 / scale;
         roundRect(ctx, x - boxW / 2, y - boxH / 2, boxW, boxH, 5 / scale);
         ctx.fill();
         ctx.stroke();
       }
 
+      const catText = node.color
+        ? (P.light ? shade(node.color, 0.42) : node.color)
+        : (P.light ? "#1a2233" : "#e9e3ff");
       ctx.globalAlpha = dimmed(node) ? 0.14 : isHover ? 1 : 0.88;
-      ctx.fillStyle = isHover
-        ? "#ffffff"
-        : isCategory
-          ? (node.color || "#e9e3ff")
-          : "rgba(216, 228, 245, 0.95)";
+      ctx.fillStyle = isHover ? P.hoverText : isCategory ? catText : P.labelText;
       ctx.fillText(label, x, y);
     });
 
