@@ -309,6 +309,33 @@ code, pre, kbd { font-family: var(--mono); }
   background: rgba(245, 194, 107, 0.18); color: var(--amber);
   border-radius: 3px; padding: 0 2px;
 }
+/* 当前停留的匹配项：实心高亮 + 光晕 */
+.doc mark.mark-focus {
+  background: var(--amber); color: #201603;
+  box-shadow: 0 0 0 3px rgba(245, 194, 107, 0.28);
+  font-weight: 600;
+}
+
+/* 文内匹配导航条 */
+.doc-find {
+  position: fixed; top: 74px; right: 24px; z-index: 30;
+  display: flex; align-items: center; gap: 2px;
+  padding: 4px 6px 4px 12px;
+  font-size: 12px; color: var(--ink-2);
+  background: var(--glass); border: 1px solid var(--line);
+  border-radius: 999px; backdrop-filter: blur(14px);
+  box-shadow: var(--glass-shadow);
+}
+.find-count { margin-right: 4px; font-variant-numeric: tabular-nums; }
+.find-btn {
+  width: 26px; height: 26px;
+  display: grid; place-items: center;
+  font-size: 12px; color: var(--ink-2);
+  background: transparent; border: 0; border-radius: 8px;
+  cursor: pointer; transition: all 0.15s;
+}
+.find-btn:hover { color: var(--ink); background: var(--hover); }
+@media (max-width: 760px) { .doc-find { top: auto; bottom: 20px; right: 16px; } }
 .empty-hint { padding: 16px 10px; font-size: 12px; color: var(--ink-3); text-align: center; }
 
 /* --------------------------------------------------------------- 阅读区 */
@@ -592,7 +619,7 @@ code, pre, kbd { font-family: var(--mono); }
 
 /* --------------------------------------------------------------- 星图 */
 #view-graph { padding: 0; overflow: hidden; }
-#graph-canvas { display: block; width: 100%; height: 100%; background: var(--bg-2); }
+#graph-canvas { display: block; width: 100%; height: 100%; background: var(--bg-2); touch-action: none; }
 
 .graph-toolbar {
   position: absolute; top: 14px; left: 14px; z-index: 3;
