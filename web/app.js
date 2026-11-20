@@ -538,13 +538,23 @@
       return;
     }
     try {
+      const empty = $("#graph-empty");
+      if (empty) {
+        empty.querySelector("b").textContent = "正在构建星图…";
+        empty.querySelector("span").textContent = "解析文档与关键词关系，请稍候";
+        empty.classList.remove("hidden");
+      }
       const data = await api("/api/graph?docs=300&terms=6");
       const info = window.KBGraph.load(data);
       state.graphLoaded = true;
       $("#graph-count").textContent = info.nodes
         ? info.nodes + " 个节点 · " + info.edges + " 条连接"
         : "";
-      $("#graph-empty").classList.toggle("hidden", info.nodes > 0);
+      if (empty) {
+        empty.querySelector("b").textContent = "星图还是空的";
+        empty.querySelector("span").textContent = "上传文件之后，这里会生长出属于你的知识网络。";
+        empty.classList.toggle("hidden", info.nodes > 0);
+      }
       window.KBGraph.resize();
       window.KBGraph.fit();
       window.KBGraph.setHighlight(state.mode === "search" ? state.hits.map((h) => h.id) : []);
@@ -590,6 +600,118 @@
 
   /* ------------------------------------------------------------------ 阅读 */
 
+  /* ------------------------------------------------------- 文档页增强 */
+
+  let tocItems = [];
+
+  function decorateDoc(article) {
+    const body = article.querySelector(".doc-body");
+    const toc = article.querySelector("#doc-toc");
+    tocItems = [];
+
+    if (body) {
+      // 标题锚点 + 大纲条目
+      body.querySelectorAll("h2, h3").forEach((head, i) => {
+        const id = "sec-" + i;
+        head.id = id;
+        tocItems.push({ id, level: head.tagName === "H2" ? 2 : 3, text: head.textContent.trim() });
+      });
+
+      // 代码块复制按钮
+      body.querySelectorAll("pre").forEach((pre) => {
+        if (pre.parentElement && pre.parentElement.classList.contains("code-wrap")) return;
+        const wrap = el("div", "code-wrap");
+        pre.parentNode.insertBefore(wrap, pre);
+        wrap.appendChild(pre);
+        const btn = el("button", "code-copy", "复制");
+        btn.type = "button";
+        btn.onclick = async () => {
+          const code = pre.querySelector("code");
+          try {
+            await navigator.clipboard.writeText(code ? code.textContent : pre.textContent);
+            btn.textContent = "已复制";
+          } catch (_) {
+            btn.textContent = "复制失败";
+          }
+          setTimeout(() => { btn.textContent = "复制"; }, 1500);
+        };
+        wrap.appendChild(btn);
+      });
+
+      // 图片点击放大
+      body.querySelectorAll("img").forEach((img) => {
+        img.classList.add("zoomable");
+        img.onclick = () => openLightbox(img.src, img.alt);
+      });
+    }
+
+    if (toc) {
+      if (tocItems.length >= 2) {
+        toc.innerHTML =
+          '<div class="toc-title">本页目录</div>' +
+          tocItems.map((item) =>
+            '<button class="toc-item lv' + item.level + '" data-target="' + item.id + '">' +
+            escapeHtml(item.text) + "</button>"
+          ).join("");
+        toc.querySelectorAll(".toc-item").forEach((btn) => {
+          btn.onclick = () => {
+            const target = document.getElementById(btn.dataset.target);
+            if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
+          };
+        });
+      } else {
+        toc.innerHTML = "";
+      }
+    }
+    updateTocActive();
+  }
+
+  function updateTocActive() {
+    const pane = $("#view-doc");
+    if (!pane) return;
+
+    const bar = $("#read-progress");
+    if (bar) {
+      const max = pane.scrollHeight - pane.clientHeight;
+      const pct = max > 4 ? Math.min(1, pane.scrollTop / max) : 0;
+      bar.style.transform = "scaleX(" + pct.toFixed(4) + ")";
+    }
+
+    const toc = $("#doc-toc");
+    if (!toc || !tocItems.length) return;
+    const line = pane.getBoundingClientRect().top + 96;
+    let current = tocItems[0].id;
+    tocItems.forEach((item) => {
+      const node = document.getElementById(item.id);
+      if (node && node.getBoundingClientRect().top <= line) current = item.id;
+    });
+    toc.querySelectorAll(".toc-item").forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.target === current);
+    });
+  }
+
+  function openLightbox(src, alt) {
+    let box = $("#lightbox");
+    if (!box) {
+      box = el("div", "lightbox hidden");
+      box.id = "lightbox";
+      box.innerHTML = '<img alt="" /><button class="lightbox-close" aria-label="关闭">✕</button>';
+      document.body.appendChild(box);
+      box.addEventListener("click", (event) => {
+        if (event.target === box || event.target.classList.contains("lightbox-close")) {
+          box.classList.add("hidden");
+        }
+      });
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") box.classList.add("hidden");
+      });
+    }
+    const img = box.querySelector("img");
+    img.src = src;
+    img.alt = alt || "";
+    box.classList.remove("hidden");
+  }
+
   function stripTitleHeading(content, title) {
     const lines = String(content || "").split("\n");
     const first = /^\s{0,3}#\s+(.*?)\s*#*\s*$/.exec(lines[0] || "");
@@ -619,19 +741,26 @@
         '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>' +
         "返回" +
       "</button>" +
-      '<div class="doc-head">' +
-        "<h1>" + escapeHtml(doc.title) + "</h1>" +
-        '<div class="doc-meta">' + meta + "</div>" +
-        (tags ? '<div class="doc-meta" style="margin-top:8px">' + tags + "</div>" : "") +
-        '<div class="doc-actions">' +
-          '<a class="btn" href="/api/doc/' + doc.id + '/raw" target="_blank" rel="noreferrer">下载原文件</a>' +
-          '<button class="btn" id="btn-tags">编辑标签</button>' +
-          '<button class="btn" id="btn-title">重命名标题</button>' +
-          '<button class="btn btn-danger" id="btn-delete">删除</button>' +
+      '<div class="doc-layout">' +
+        '<div class="doc-main">' +
+          '<div class="doc-head">' +
+            "<h1>" + escapeHtml(doc.title) + "</h1>" +
+            '<div class="doc-meta">' + meta + "</div>" +
+            (tags ? '<div class="doc-meta" style="margin-top:8px">' + tags + "</div>" : "") +
+            '<div class="doc-actions">' +
+              '<a class="btn" href="/api/doc/' + doc.id + '/raw" target="_blank" rel="noreferrer">下载原文件</a>' +
+              '<button class="btn" id="btn-tags">编辑标签</button>' +
+              '<button class="btn" id="btn-title">重命名标题</button>' +
+              '<button class="btn btn-danger" id="btn-delete">删除</button>' +
+            "</div>" +
+          "</div>" +
+          '<div class="doc-body">' + (doc.truncated ? '<p class="muted">（内容过长，仅显示前 40 万字符）</p>' : "") +
+          (bodyHtml || '<p class="muted">这个文件没有可提取的文本。</p>') + "</div>" +
         "</div>" +
-      "</div>" +
-      '<div class="doc-body">' + (doc.truncated ? '<p class="muted">（内容过长，仅显示前 40 万字符）</p>' : "") +
-      (bodyHtml || '<p class="muted">这个文件没有可提取的文本。</p>') + "</div>";
+        '<aside class="doc-toc" id="doc-toc" aria-label="文内导航"></aside>' +
+      "</div>";
+
+    decorateDoc(article);
 
     $("#btn-tags").onclick = async () => {
       const input = window.prompt("标签（逗号分隔）：", (doc.tags || []).join(","));
@@ -880,8 +1009,7 @@
       search.focus();
     };
 
-    $("#btn-upload").onclick = openModal;
-    $("#btn-upload-2").onclick = openModal;
+    $("#btn-upload").onclick = openModal;    $("#btn-upload-2").onclick = openModal;
     $("#btn-reindex").onclick = reindex;
     $("#tab-doc").onclick = () => switchView("doc");
     $("#tab-graph").onclick = () => switchView("graph");
@@ -904,6 +1032,10 @@
       }
       if (event.key === "Escape" && !$("#modal").classList.contains("hidden")) closeModal();
     });
+
+    // 阅读进度与大纲高亮
+    const pane = $("#view-doc");
+    if (pane) pane.addEventListener("scroll", updateTocActive, { passive: true });
   }
 
   async function boot() {
