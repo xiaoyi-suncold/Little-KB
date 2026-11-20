@@ -712,6 +712,42 @@
     box.classList.remove("hidden");
   }
 
+  /* ------------------------------------------------------- 文档内匹配导航 */
+
+  let docMarks = [];
+  let docMarkIndex = 0;
+
+  function setupDocFind(article) {
+    docMarks = Array.from(article.querySelectorAll("mark"));
+    const bar = $("#doc-find");
+    if (!bar) return;
+    if (!docMarks.length) {
+      bar.classList.add("hidden");
+      return;
+    }
+    docMarkIndex = 0;
+    bar.classList.remove("hidden");
+    updateDocFindBar();
+    const first = docMarks[0];
+    if (first) first.scrollIntoView({ block: "center", behavior: "smooth" });
+  }
+
+  function updateDocFindBar() {
+    const bar = $("#doc-find");
+    if (!bar) return;
+    const count = bar.querySelector(".find-count");
+    if (count) count.textContent = (docMarkIndex + 1) + " / " + docMarks.length;
+    docMarks.forEach((mark, i) => mark.classList.toggle("mark-focus", i === docMarkIndex));
+  }
+
+  function jumpDocMark(step) {
+    if (!docMarks.length) return;
+    docMarkIndex = (docMarkIndex + step + docMarks.length) % docMarks.length;
+    const target = docMarks[docMarkIndex];
+    if (target) target.scrollIntoView({ block: "center", behavior: "smooth" });
+    updateDocFindBar();
+  }
+
   function stripTitleHeading(content, title) {
     const lines = String(content || "").split("\n");
     const first = /^\s{0,3}#\s+(.*?)\s*#*\s*$/.exec(lines[0] || "");
@@ -761,6 +797,7 @@
       "</div>";
 
     decorateDoc(article);
+    setupDocFind(article);
 
     $("#btn-tags").onclick = async () => {
       const input = window.prompt("标签（逗号分隔）：", (doc.tags || []).join(","));
@@ -823,8 +860,6 @@
       }
     };
 
-    const mark = article.querySelector("mark");
-    if (mark) mark.scrollIntoView({ block: "center", behavior: "smooth" });
   }
 
   async function openDoc(id) {
@@ -1036,9 +1071,25 @@
     // 阅读进度与大纲高亮
     const pane = $("#view-doc");
     if (pane) pane.addEventListener("scroll", updateTocActive, { passive: true });
+
+    // 文内匹配导航
+    const findPrev = $("#find-prev");
+    if (findPrev) findPrev.onclick = () => jumpDocMark(-1);
+    const findNext = $("#find-next");
+    if (findNext) findNext.onclick = () => jumpDocMark(1);
+    const findClose = $("#find-close");
+    if (findClose) {
+      findClose.onclick = () => {
+        const bar = $("#doc-find");
+        if (bar) bar.classList.add("hidden");
+        docMarks.forEach((mark) => mark.classList.remove("mark-focus"));
+      };
+    }
   }
 
   async function boot() {
+    // 先记下进入时的锚点：后面的搜索会把 hash 改成 #search-xxx
+    const initialHash = location.hash;
     const forcedTheme = new URLSearchParams(location.search).get("theme");
     applyTheme(forcedTheme === "light" || forcedTheme === "dark"
       ? forcedTheme
@@ -1059,12 +1110,12 @@
       await runSearch(initialQuery.trim());
     }
     if (new URLSearchParams(location.search).get("upload") === "1") openModal();
-    if (!location.hash || location.hash === "#graph") {
+    if (!initialHash || initialHash === "#graph") {
       switchView("graph");
     } else {
-      const docMatch = /^#doc-(\d+)$/.exec(location.hash);
-      const catMatch = /^#cat-(.*)$/.exec(location.hash);
-      const searchMatch = /^#search-(.*)$/.exec(location.hash);
+      const docMatch = /^#doc-(\d+)$/.exec(initialHash);
+      const catMatch = /^#cat-(.*)$/.exec(initialHash);
+      const searchMatch = /^#search-(.*)$/.exec(initialHash);
       if (docMatch) {
         switchView("doc");
         openDoc(Number(docMatch[1]));
@@ -1077,7 +1128,7 @@
         const q = decodeURIComponent(searchMatch[1]);
         $("#search").value = q;
         await runSearch(q);
-      } else if (location.hash === "#home") {
+      } else if (initialHash === "#home") {
         switchView("doc");
         showPage("home");
       } else {
