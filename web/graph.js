@@ -44,6 +44,9 @@ window.KBGraph = (function () {
   let panning = false;
   let moved = false;
   let pointer = { x: 0, y: 0 };
+  /* 双指缩放状态 */
+  const activePointers = new Map();
+  let pinch = null;
 
   let showLabels = true;
   let filters = { doc: true, term: false, tag: true, category: true };
@@ -114,6 +117,7 @@ window.KBGraph = (function () {
     canvas.addEventListener("pointerdown", onDown);
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
     canvas.addEventListener("pointerleave", () => {
       if (!dragNode) {
         hover = null;
@@ -298,6 +302,37 @@ window.KBGraph = (function () {
           cat.bx += Math.sin(i * 2.1) * 18;
           cat.by += Math.cos(i * 1.7) * 18;
         });
+
+        // 斥力松弛：小簇之间以及小簇与核心簇之间互相推开，防止重叠
+        for (let iter = 0; iter < 180; iter += 1) {
+          for (let i = 0; i < satellites.length; i += 1) {
+            for (let j = i + 1; j < satellites.length; j += 1) {
+              const a = satellites[i];
+              const b = satellites[j];
+              let dx = b.bx - a.bx;
+              let dy = b.by - a.by;
+              let d = Math.hypot(dx, dy);
+              if (d < 0.001) { dx = 0.01; dy = 0.01; d = 0.014; }
+              const min = a.clusterR + b.clusterR + 38;
+              if (d < min) {
+                const push = ((min - d) / d) * 0.5;
+                a.bx -= dx * push;
+                a.by -= dy * push;
+                b.bx += dx * push;
+                b.by += dy * push;
+              }
+            }
+          }
+          // 不与核心簇重叠
+          satellites.forEach((sat) => {
+            const d = Math.hypot(sat.bx, sat.by) || 1;
+            const min = core.clusterR + sat.clusterR + 26;
+            if (d < min) {
+              sat.bx = (sat.bx / d) * min;
+              sat.by = (sat.by / d) * min;
+            }
+          });
+        }
       }
     }
 
@@ -718,7 +753,29 @@ window.KBGraph = (function () {
   }
 
   function onDown(event) {
-    if (event.button !== 0) return;
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+
+    // 第二根手指落下 → 进入双指缩放，取消拖拽与平移
+    if (activePointers.size === 2) {
+      dragNode = null;
+      panning = false;
+      const pts = Array.from(activePointers.values());
+      const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) || 1;
+      const midX = (pts[0].x + pts[1].x) / 2;
+      const midY = (pts[0].y + pts[1].y) / 2;
+      const rect = canvas.getBoundingClientRect();
+      pinch = {
+        dist,
+        scale,
+        worldX: (midX - rect.left - tx) / scale,
+        worldY: (midY - rect.top - ty) / scale,
+      };
+      try { canvas.setPointerCapture(event.pointerId); } catch (_) { /* 忽略 */ }
+      draw();
+      return;
+    }
+
     pointer = { x: event.clientX, y: event.clientY };
     moved = false;
     const node = hitTest(event.clientX, event.clientY);
@@ -732,6 +789,25 @@ window.KBGraph = (function () {
   }
 
   function onMove(event) {
+    if (activePointers.has(event.pointerId)) {
+      activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    }
+
+    // 双指缩放：以两指中点为锚点
+    if (pinch && activePointers.size >= 2) {
+      const pts = Array.from(activePointers.values());
+      const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) || 1;
+      const midX = (pts[0].x + pts[1].x) / 2;
+      const midY = (pts[0].y + pts[1].y) / 2;
+      const rect = canvas.getBoundingClientRect();
+      scale = Math.min(5, Math.max(0.2, pinch.scale * (dist / pinch.dist)));
+      tx = (midX - rect.left) - pinch.worldX * scale;
+      ty = (midY - rect.top) - pinch.worldY * scale;
+      moved = true;
+      draw();
+      return;
+    }
+
     if (dragNode) {
       const world = toWorld(event.clientX, event.clientY);
       const d = drift(dragNode);
@@ -772,7 +848,14 @@ window.KBGraph = (function () {
     }
   }
 
-  function onUp() {
+  function onUp(event) {
+    if (event && activePointers.has(event.pointerId)) activePointers.delete(event.pointerId);
+    if (pinch) {
+      if (activePointers.size < 2) pinch = null;
+      moved = true;
+      if (canvas) canvas.style.cursor = "grab";
+      return;
+    }
     if (dragNode) {
       const node = dragNode;
       dragNode = null;
