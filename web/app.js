@@ -54,6 +54,18 @@
     return value.toFixed(1) + " " + units[i];
   }
 
+  /** 清理检索片段中的 Markdown 表格残留符号，避免出现一长串竖线 */
+  function cleanSnippet(html) {
+    return String(html || "")
+      .split(/\n+/)
+      .map((line) => line.trim())
+      .filter((line) => line && !/^[|\s:\-—]+$/.test(line))
+      .join(" ")
+      .replace(/\|/g, " ")
+      .replace(/\s{2,}/g, " ")
+      .trim();
+  }
+
   function relTime(stamp) {
     if (!stamp) return "";
     const date = new Date(stamp.replace(" ", "T"));
@@ -417,7 +429,7 @@
         row.appendChild(el("span", "title", escapeHtml(hit.title)));
         if (hit.category) row.appendChild(el("span", "badge", escapeHtml(hit.category)));
         li.appendChild(row);
-        const snippet = el("div", "snippet", hit.snippet || "");
+        const snippet = el("div", "snippet", cleanSnippet(hit.snippet));
         li.appendChild(snippet);
         li.onclick = () => openDoc(hit.id);
         list.appendChild(li);
@@ -895,7 +907,10 @@
   }
 
   async function boot() {
-    applyTheme(localStorage.getItem("kb-theme") || "dark");
+    const forcedTheme = new URLSearchParams(location.search).get("theme");
+    applyTheme(forcedTheme === "light" || forcedTheme === "dark"
+      ? forcedTheme
+      : (localStorage.getItem("kb-theme") || "dark"));
     wireEvents();
     wireModal();
     initGraph();
